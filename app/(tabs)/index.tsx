@@ -3,6 +3,13 @@ import { View, Text, TextInput, ScrollView, TouchableOpacity, StyleSheet, Modal,
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
+import axios from 'axios';
+
+const fetchTasks = async () => {
+  const res = await axios.get('http://localhost:3000/tasks');
+  console.log(res.data);
+};
+
 interface ChecklistItem {
   id: string;
   title: string;
@@ -228,7 +235,7 @@ export default function TaskManagerMainScreen() {
             <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 8 }}>{stage}</Text>
             <ScrollView>
               {tasksByStage[stage].map(task => {
-                const borderColor = task.completed ? '#10b981' : task.priority === 'high' ? '#ef4444' : task.priority === 'medium' ? '#f59e0b' : '#10b981';
+                const borderColor = task.completed ? '#10b981' : task.priority === 'high' ? '#ef4444' : task.priority === 'medium' ? '#f59e0b' : '#0000ff';
                 return (
                   <View key={task.id} style={[styles.taskItem, { borderLeftWidth: 4, borderLeftColor: borderColor }]}>
                     <TouchableOpacity onPress={() => toggleComplete(task.id)}>
@@ -358,7 +365,7 @@ export default function TaskManagerMainScreen() {
             {Platform.OS === 'web' ? (
               <input
                 type="date"
-                value={newTaskDue.toISOString().split('T')[0]}
+
                 onChange={(e) => setNewTaskDue(new Date(e.target.value))}
                 style={{
                   padding: 8,
@@ -394,7 +401,7 @@ export default function TaskManagerMainScreen() {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
               <View style={{ flexDirection: 'row', flexWrap: 'nowrap', }}>
                 {['low', 'medium', 'high'].map((p) => {
-                  let color = p === 'low' ? '#10b981' : p === 'medium' ? '#f59e0b' : '#ef4444';
+                  let color = p === 'low' ? '#0000ff' : p === 'medium' ? '#f59e0b' : '#ef4444';
                   let label = p === 'low' ? 'Низкий' : p === 'medium' ? 'Средний' : 'Высокий';
                   return (
                     <TouchableOpacity
@@ -458,6 +465,30 @@ export default function TaskManagerMainScreen() {
                 <Text style={{ color: '#fff', fontSize: isSmallScreen ? 16 : 18 }}>+</Text>
               </TouchableOpacity>
             </View>
+
+            {newChecklist.length > 0 && (
+              <View style={{ marginBottom: 12 }}>
+                {newChecklist.map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    onPress={() => {
+                      // переключаем выполнение прямо в модалке
+                      setNewChecklist((s) =>
+                        s.map((c) =>
+                          c.id === item.id ? { ...c, completed: !c.completed } : c
+                        )
+                      );
+                    }}
+                    style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}
+                  >
+                    <Text style={{ marginRight: 8 }}>{item.completed ? '✅' : '⬜'}</Text>
+                    <Text style={{ textDecorationLine: item.completed ? 'line-through' : 'none' }}>
+                      {item.title}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
 
 
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
