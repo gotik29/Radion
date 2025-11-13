@@ -6,8 +6,16 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import axios from 'axios';
 
 const fetchTasks = async () => {
-  const res = await axios.get('http://localhost:3000/tasks');
-  console.log(res.data);
+  try {
+    const res = await axios.get('http://172.20.10.2:3000/tasks');
+    console.log('✅ Данные с сервера:', res.data);
+  } catch (err: any) {
+    console.error('❌ Ошибка при запросе:', err.message);
+    if (err.response) {
+      console.log('Status:', err.response.status);
+      console.log('Data:', err.response.data);
+    }
+  }
 };
 
 interface ChecklistItem {
@@ -27,7 +35,7 @@ interface Task {
 }
 
 export default function TaskManagerMainScreen() {
-  const [tasks, setTasks] = useState<Task[]>(sampleTasks());
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [query, setQuery] = useState('');
   const [showAdd, setShowAdd] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
@@ -70,6 +78,27 @@ export default function TaskManagerMainScreen() {
     }, 3000);
   };
 
+  useEffect(() => {
+    const loadTasks = async () => {
+      try {
+        const res = await axios.get('http://172.20.10.2:3000/tasks');
+        // Преобразуем id в строку, чтобы соответствовало интерфейсу Task
+        const serverTasks: Task[] = res.data.map((t: any) => ({
+          ...t,
+          id: t.id.toString(),
+          checklist: t.checklist || [],
+        }));
+        setTasks(serverTasks);
+      } catch (err: any) {
+        console.error('❌ Ошибка при загрузке задач с сервера:', err.message);
+        if (err.response) console.log('Status:', err.response.status, 'Data:', err.response.data);
+      }
+    };
+
+    loadTasks();
+  }, []);
+
+
   const openAddModal = (task?: Task) => {
     if (task) {
       setEditingTask(task);
@@ -89,33 +118,65 @@ export default function TaskManagerMainScreen() {
     setShowAdd(true);
   };
 
-  const saveTask = () => {
+  const saveTask = async () => {
     if (!newTaskTitle.trim()) return;
 
     if (editingTask) {
-      setTasks((s) => s.map((t) => t.id === editingTask.id ? {
-        ...t,
-        title: newTaskTitle.trim(),
-        description: newTaskDescription.trim(),
-        due: newTaskDue.toISOString().split('T')[0],
-        priority: newTaskPriority,
-        checklist: newChecklist,
-      } : t));
+      // обновление существующей задачи
+      try {
+        await axios.put(`http://172.20.10.2:3000/tasks/${editingTask.id}`, {
+          title: newTaskTitle.trim(),
+          description: newTaskDescription.trim(),
+          completed: editingTask.completed,
+          due: newTaskDue.toISOString().split('T')[0],
+          priority: newTaskPriority,
+          checklist: newChecklist,
+        });
+        setTasks((s) =>
+          s.map((t) =>
+            t.id === editingTask.id
+              ? {
+                ...t,
+                title: newTaskTitle.trim(),
+                description: newTaskDescription.trim(),
+                due: newTaskDue.toISOString().split('T')[0],
+                priority: newTaskPriority,
+                checklist: newChecklist,
+              }
+              : t
+          )
+        );
+      } catch (err) {
+        console.error('Ошибка при обновлении задачи', err);
+      }
     } else {
-      const t: Task = {
-        id: Date.now().toString(),
-        title: newTaskTitle.trim(),
-        description: newTaskDescription.trim(),
-        completed: false,
-        due: newTaskDue.toISOString().split('T')[0],
-        priority: newTaskPriority,
-        checklist: newChecklist,
-      };
-      setTasks((s) => [t, ...s]);
+      // создание новой задачи
+      try {
+        const res = await axios.post("http://172.20.10.2:3000/tasks", {
+          title: newTaskTitle.trim(),
+          description: newTaskDescription.trim(),
+          due: newTaskDue.toISOString().split('T')[0],
+          priority: newTaskPriority,
+          checklist: newChecklist,
+        });
+        const t: Task = {
+          id: res.data.id.toString(),
+          title: newTaskTitle.trim(),
+          description: newTaskDescription.trim(),
+          completed: false,
+          due: newTaskDue.toISOString().split('T')[0],
+          priority: newTaskPriority,
+          checklist: newChecklist,
+        };
+        setTasks((s) => [t, ...s]);
+      } catch (err) {
+        console.error('Ошибка при создании задачи', err);
+      }
     }
 
     setShowAdd(false);
   };
+
 
   const toggleComplete = (id: string) => {
     setTasks((s) =>
@@ -155,6 +216,11 @@ export default function TaskManagerMainScreen() {
     if (!showCompleted && t.completed) return false;
     return matchesQuery;
   });
+
+  const formatDate = (date: string | null) => {
+    if (!date) return '';
+    return new Date(date).toISOString().split('T')[0];
+  };
 
   const getTaskStage = (task: Task) => {
     if (task.completed) return 'Выполнено';
@@ -242,7 +308,7 @@ export default function TaskManagerMainScreen() {
                       <Text style={[styles.taskTitle, task.completed && styles.completed]}>{task.title}</Text>
                     </TouchableOpacity>
                     <Text>{task.description}</Text>
-                    {task.due && <Text>Срок: {task.due}</Text>}
+                    {task.due && <Text>Срок: {formatDate(task.due)}</Text>}
 
                     {task.checklist.length > 0 && (
                       <View style={{ marginTop: 8 }}>
@@ -472,12 +538,20 @@ export default function TaskManagerMainScreen() {
                   <TouchableOpacity
                     key={item.id}
                     onPress={() => {
-                      // переключаем выполнение прямо в модалке
-                      setNewChecklist((s) =>
-                        s.map((c) =>
-                          c.id === item.id ? { ...c, completed: !c.completed } : c
-                        )
+                      // Переключаем локально
+                      const updatedChecklist = newChecklist.map(c =>
+                        c.id === item.id ? { ...c, completed: !c.completed } : c
                       );
+                      setNewChecklist(updatedChecklist);
+
+                      // Если редактируем существующую задачу, синхронизируем tasks
+                      if (editingTask) {
+                        setTasks(tasks.map(t =>
+                          t.id === editingTask.id
+                            ? { ...t, checklist: updatedChecklist }
+                            : t
+                        ));
+                      }
                     }}
                     style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}
                   >
