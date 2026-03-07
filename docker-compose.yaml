@@ -1,0 +1,14 @@
+services:
+  postgres:
+    container_name: postgres
+    image: postgres
+    restart: no
+    shm_size: 128mb
+    ports:
+      - "5431:5432"
+    environment:
+      POSTGRES_PASSWORD:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: Diplom
+    volumes:
+      - postgres-data:/var/lib/postgresql

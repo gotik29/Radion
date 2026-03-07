@@ -1,3 +1,7 @@
+//http://localhost:3000/
+//http://172.20.10.2:3000/
+//http://192.168.0.147:3000
+const ip = 'http://172.20.10.2:3000';
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -47,7 +51,7 @@ export default function ProfileScreen() {
   // --- Получение задач с API ---
   const fetchTasks = async () => {
     try {
-      const response = await axios.get<Task[]>('http://172.20.10.2:3000/tasks');
+      const response = await axios.get<Task[]>(`${ip}/tasks`);
       setTasks(response.data);
     } catch (error) {
       console.log('Ошибка при получении задач', error);
@@ -57,7 +61,7 @@ export default function ProfileScreen() {
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        const res = await axios.get('http://172.20.10.2:3000/profile');
+        const res = await axios.get(`${ip}/profile`);
         if (res.data) {
           setName(res.data.name);
           setEmail(res.data.email);
@@ -108,7 +112,7 @@ export default function ProfileScreen() {
   // --- Обновление профиля на сервере ---
   const saveProfile = async () => {
     try {
-      await axios.post('http://172.20.10.2:3000/profile', { name, email, phone, city, avatar });
+      await axios.post(`${ip}/profile`, { name, email, phone, city, avatar });
       Alert.alert('Профиль сохранён');
       setEditModalVisible(false);
     } catch (error) {
@@ -121,7 +125,7 @@ export default function ProfileScreen() {
   const toggleComplete = async (task: Task) => {
     try {
       const updatedTask = { ...task, completed: !task.completed };
-      await axios.put(`http://172.20.10.2:3000/tasks/${task.id}`, updatedTask);
+      await axios.put(`${ip}/tasks/${task.id}`, updatedTask);
       setTasks((prev) => prev.map((t) => t.id === task.id ? updatedTask : t));
     } catch (error) {
       console.log('Ошибка при обновлении задачи', error);

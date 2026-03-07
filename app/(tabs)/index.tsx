@@ -1,13 +1,21 @@
+//http://localhost:3000/
+//http://172.20.10.2:3000/
+const ip = 'http://172.20.10.2:3000';
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, TextInput, ScrollView, TouchableOpacity, StyleSheet, Modal, Platform, Switch, Animated, Dimensions } from 'react-native';
+import { View, Text, TextInput, ScrollView, TouchableOpacity, StyleSheet, Modal, Platform, Switch, Animated, Dimensions, LayoutAnimation, UIManager } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { Task, ChecklistItem } from '@/constants/types';
 
 import axios from 'axios';
 
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
 const fetchTasks = async () => {
   try {
-    const res = await axios.get('http://172.20.10.2:3000/tasks');
+    const res = await axios.get(`${ip}/tasks`);
     console.log('✅ Данные с сервера:', res.data);
   } catch (err: any) {
     console.error('❌ Ошибка при запросе:', err.message);
@@ -17,22 +25,6 @@ const fetchTasks = async () => {
     }
   }
 };
-
-interface ChecklistItem {
-  id: string;
-  title: string;
-  completed: boolean;
-}
-
-interface Task {
-  id: string;
-  title: string;
-  description: string;
-  completed: boolean;
-  due: string | null;
-  priority: 'low' | 'medium' | 'high';
-  checklist: ChecklistItem[];
-}
 
 export default function TaskManagerMainScreen() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -81,7 +73,7 @@ export default function TaskManagerMainScreen() {
   useEffect(() => {
     const loadTasks = async () => {
       try {
-        const res = await axios.get('http://172.20.10.2:3000/tasks');
+        const res = await axios.get(`${ip}/tasks`);
         // Преобразуем id в строку, чтобы соответствовало интерфейсу Task
         const serverTasks: Task[] = res.data.map((t: any) => ({
           ...t,
@@ -124,7 +116,7 @@ export default function TaskManagerMainScreen() {
     if (editingTask) {
       // обновление существующей задачи
       try {
-        await axios.put(`http://172.20.10.2:3000/tasks/${editingTask.id}`, {
+        await axios.put(`${ip}/tasks/${editingTask.id}`, {
           title: newTaskTitle.trim(),
           description: newTaskDescription.trim(),
           completed: editingTask.completed,
@@ -152,7 +144,7 @@ export default function TaskManagerMainScreen() {
     } else {
       // создание новой задачи
       try {
-        const res = await axios.post("http://172.20.10.2:3000/tasks", {
+        const res = await axios.post(`${ip}/tasks`, {
           title: newTaskTitle.trim(),
           description: newTaskDescription.trim(),
           due: newTaskDue.toISOString().split('T')[0],
@@ -178,23 +170,60 @@ export default function TaskManagerMainScreen() {
   };
 
 
-  const toggleComplete = (id: string) => {
-    setTasks((s) =>
-      s.map((t) => {
-        if (t.id === id) {
-          if (t.checklist.length > 0 && t.checklist.some(c => !c.completed)) {
-            showWarningPopup();
-            return t;
-          }
-          return { ...t, completed: !t.completed };
-        }
-        return t;
-      })
-    );
+  const toggleComplete = async (id: string) => {
+    const task = tasks.find(t => t.id === id);
+    if (!task) return;
+
+    // Логика: нельзя завершить задачу, если в чеклисте есть пустые пункты
+    if (!task.completed && task.checklist.some(c => !c.completed)) {
+      showWarningPopup(); // Твой попап с предупреждением
+      return;
+    }
+
+    const newStatus = !task.completed;
+
+    // Анимация перед обновлением состояния
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+
+    try {
+      // Обновляем в БД
+      await axios.put(`${ip}/tasks/${id}`, {
+        ...task,
+        completed: newStatus
+      });
+
+      // Обновляем в стейте
+      setTasks(prev => prev.map(t => t.id === id ? { ...t, completed: newStatus } : t));
+    } catch (err) {
+      console.error("Ошибка при обновлении статуса:", err);
+    }
   };
 
-  const removeTask = (id: string) => {
-    setTasks((s) => s.filter((t) => t.id !== id));
+  const removeTask = async (id: string) => {
+    // 1. Спрашиваем подтверждение (опционально, но полезно)
+    const confirmDelete = () => {
+      if (Platform.OS === 'web') {
+        return window.confirm("Вы уверены, что хотите удалить эту задачу?");
+      }
+      // Для мобильных можно использовать Alert.alert, но для простоты оставим логику удаления
+      return true;
+    };
+
+    if (!confirmDelete()) return;
+
+    // 2. Отправляем запрос на сервер
+    try {
+      await axios.delete(`${ip}/tasks/${id}`);
+
+      // 3. Если сервер ответил успешно, удаляем из локального списка (UI)
+      setTasks((s) => s.filter((t) => t.id !== id));
+      console.log(`✅ Задача ${id} удалена`);
+    } catch (err) {
+      console.error('❌ Ошибка при удалении задачи:', err);
+      if (Platform.OS !== 'web') {
+        alert("Не удалось удалить задачу. Проверьте соединение с сервером.");
+      }
+    }
   };
 
   const addChecklistItem = () => {
@@ -204,11 +233,33 @@ export default function TaskManagerMainScreen() {
     setCheckItemText('');
   };
 
-  const toggleChecklistItem = (taskId: string, itemId: string) => {
-    setTasks((s) => s.map((t) => t.id === taskId ? {
-      ...t,
-      checklist: t.checklist.map(c => c.id === itemId ? { ...c, completed: !c.completed } : c)
-    } : t));
+  const toggleChecklistItem = async (taskId: string, itemId: string) => {
+    const taskToUpdate = tasks.find(t => t.id === taskId);
+    if (!taskToUpdate) return;
+
+    // Создаем новый чеклист
+    const updatedChecklist = taskToUpdate.checklist.map(item =>
+      item.id === itemId ? { ...item, completed: !item.completed } : item
+    );
+
+    // 1. Локальное обновление для мгновенной реакции интерфейса
+    setTasks((s) => s.map((t) => t.id === taskId ? { ...t, checklist: updatedChecklist } : t));
+
+    // 2. Отправка на сервер
+    try {
+      await axios.put(`${ip}/tasks/${taskId}`, {
+        title: taskToUpdate.title,
+        description: taskToUpdate.description,
+        completed: taskToUpdate.completed,
+        due: taskToUpdate.due,
+        priority: taskToUpdate.priority,
+        checklist: updatedChecklist // отправляем обновленный массив
+      });
+      console.log('✅ Чеклист сохранен в базе');
+    } catch (err) {
+      console.error('❌ Не удалось сохранить чеклист:', err);
+      // Здесь можно вернуть состояние назад, если запрос не удался
+    }
   };
 
   const filtered = tasks.filter(t => {
