@@ -14,7 +14,7 @@ export const TaskProvider = ({ children }: { children: React.ReactNode }) => {
 
   const refreshTasks = async () => {
     try {
-      const res = await axios.get('http://172.20.10.2:3000/tasks');
+      const res = await axios.get('https://server-elfq.onrender.com/tasks');
       setTasks(res.data);
     } catch (err) {
       console.error("Ошибка синхронизации с БД:", err);

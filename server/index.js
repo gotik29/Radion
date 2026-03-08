@@ -1,5 +1,11 @@
+//import express from "express";
+//import { Pool } from "pg";
+//import cors from "cors";
+//import bodyParser from "body-parser";
+
 import express from "express";
-import { Pool } from "pg";
+import pkg from 'pg';
+const { Pool } = pkg;
 import cors from "cors";
 import bodyParser from "body-parser";
 
@@ -9,23 +15,38 @@ app.use(cors());
 app.use(bodyParser.json({ limit: '50mb' }));
 
 const pool = new Pool({
-  user: "postgres",
-  host: "localhost",
-  database: "Diplom",
-  password: "",
-  port: 5432,
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }, // Обязательно для Neon в облаке
 });
+
+//const pool = new Pool({
+//  user: "neondb_owner",
+//  host: "ep-calm-rain-al3pxqga-pooler.c-3.eu-central-1.aws.neon.tech",
+//  database: "neondb",
+//  password: "process.env.DATABASE_URL",
+//  port: 5432,
+//  ssl: { rejectUnauthorized: false },
+//});
+
+//const pool = new Pool({
+//  user: "postgres",
+//  host: "localhost",
+//  database: "Diplom",
+//  password: "",
+//  port: 5432,
+//});
 
 // --- Профиль пользователя ---
 app.get("/profile", async (req, res) => {
   try {
-    // Получаем первого пользователя (id=1)
-    const result = await pool.query("SELECT * FROM users WHERE id = 1");
+    const result = await pool.query("SELECT * FROM profile WHERE id = 1");
     if (result.rows.length === 0) {
-      return res.status(404).json({ message: "Пользователь не найден" });
+      // Вместо ошибки 500 возвращаем пустой объект или 404
+      return res.status(200).json({ name: "Новый пользователь", email: "" });
     }
     res.json(result.rows[0]);
   } catch (err) {
+    console.error("Ошибка БД:", err.message); // Это выведет ошибку в терминал!
     res.status(500).json({ error: err.message });
   }
 });
@@ -34,7 +55,7 @@ app.post('/profile', async (req, res) => {
   const { name, email, phone, city, avatar } = req.body;
 
   const query = `
-    UPDATE users
+    UPDATE profile
     SET name = $1, email = $2, phone = $3, city = $4, avatar = $5
     WHERE id = 1
   `;
@@ -134,4 +155,9 @@ app.delete("/tasks/:id", async (req, res) => {
   }
 });
 
-app.listen(3000, '0.0.0.0', () => console.log('🚀 Сервер запущен на порту 3000'));
+//app.listen(3000, '0.0.0.0', () => console.log('🚀 Сервер запущен на порту 3000'));
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Сервер запущен на порту ${PORT}`);
+});

@@ -1,11 +1,13 @@
-//http://localhost:3000/
-//http://172.20.10.2:3000/
-const ip = 'http://172.20.10.2:3000';
+//http://172.20.10.2:3000/ - Телефон
+//http://192.168.0.147:3000/ - ПК
+const ip = 'https://server-elfq.onrender.com';
 import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, TextInput, ScrollView, TouchableOpacity, StyleSheet, Modal, Platform, Switch, Animated, Dimensions, LayoutAnimation, UIManager } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Task, ChecklistItem } from '@/constants/types';
+import MainMenu from '@/components/MainMenu';
+import AnimatedBurgerButton from '@/components/AnimatedBurgerButton';
 
 import axios from 'axios';
 
@@ -27,6 +29,9 @@ const fetchTasks = async () => {
 };
 
 export default function TaskManagerMainScreen() {
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(true);
+
   const [tasks, setTasks] = useState<Task[]>([]);
   const [query, setQuery] = useState('');
   const [showAdd, setShowAdd] = useState(false);
@@ -300,6 +305,13 @@ export default function TaskManagerMainScreen() {
 
   return (
     <View style={styles.container}>
+      {/* --- КНОПКА МЕНЮ (Добавлено) --- */}
+      <AnimatedBurgerButton
+        isOpen={isMenuOpen}
+        onPress={() => setIsMenuOpen(true)}
+        style={styles.burgerPosition}
+      />
+
       <Text style={styles.header}>Radion</Text>
       <View style={{ marginBottom: 12 }}>
         <Animated.Text
@@ -391,6 +403,12 @@ export default function TaskManagerMainScreen() {
           </View>
         ))}
       </ScrollView>
+
+      <MainMenu
+        isVisible={isMenuOpen}
+        onClose={() => setIsMenuOpen(false)}
+        isLoggedIn={isLoggedIn}
+      />
 
       {/* Popup уведомление */}
       {showPopup && (
@@ -644,6 +662,12 @@ function sampleTasks(): Task[] {
 }
 
 const styles = StyleSheet.create({
+  burgerPosition: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 20 : 30,
+    right: 20,
+    zIndex: 50,
+  },
   container: { flex: 1, backgroundColor: '#d1d5db', padding: 16 },
   header: { fontSize: 24, fontWeight: 'bold', marginBottom: 16 },
   searchInput: { backgroundColor: '#fff', padding: 8, borderRadius: 8, marginBottom: 12 },

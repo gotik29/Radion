@@ -1,7 +1,3 @@
-//http://localhost:3000/
-//http://172.20.10.2:3000/
-//http://192.168.0.147:3000
-const ip = 'http://172.20.10.2:3000';
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -14,14 +10,17 @@ import {
   Alert,
   StyleSheet,
   Platform,
+  TouchableOpacity,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { FontAwesome } from '@expo/vector-icons';
 import axios from 'axios';
-import METHODS from 'methods';
 
+// Импортируем общие компоненты
+import AnimatedBurgerButton from '@/components/AnimatedBurgerButton';
+import MainMenu from '@/components/MainMenu';
 
-export const methods = METHODS.map(method => method.toLowerCase());
+const ip = 'https://server-elfq.onrender.com';
 
 interface Task {
   id: string;
@@ -31,6 +30,10 @@ interface Task {
 }
 
 export default function ProfileScreen() {
+  // --- Состояния меню ---
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(true); // В профиле обычно true
+
   // --- Профиль ---
   const [avatar, setAvatar] = useState<string>('https://via.placeholder.com/150');
   const [hovered, setHovered] = useState(false);
@@ -48,34 +51,29 @@ export default function ProfileScreen() {
   const avatarSize = 150;
   const avatarMargin = 16;
 
-  // --- Получение задач с API ---
-  const fetchTasks = async () => {
-    try {
-      const response = await axios.get<Task[]>(`${ip}/tasks`);
-      setTasks(response.data);
-    } catch (error) {
-      console.log('Ошибка при получении задач', error);
-    }
-  };
-
+  // --- Получение данных с API ---
   useEffect(() => {
-    const fetchProfile = async () => {
+    const fetchData = async () => {
       try {
-        const res = await axios.get(`${ip}/profile`);
-        if (res.data) {
-          setName(res.data.name);
-          setEmail(res.data.email);
-          setPhone(res.data.phone);
-          setCity(res.data.city);
-          setAvatar(res.data.avatar || 'https://via.placeholder.com/150');
+        const [profileRes, tasksRes] = await Promise.all([
+          axios.get(`${ip}/profile`),
+          axios.get<Task[]>(`${ip}/tasks`)
+        ]);
+
+        if (profileRes.data) {
+          setName(profileRes.data.name);
+          setEmail(profileRes.data.email);
+          setPhone(profileRes.data.phone);
+          setCity(profileRes.data.city);
+          setAvatar(profileRes.data.avatar || 'https://via.placeholder.com/150');
         }
+        setTasks(tasksRes.data);
       } catch (error) {
-        console.log('Ошибка при загрузке профиля', error);
+        console.log('Ошибка при загрузке данных', error);
       }
     };
 
-    fetchProfile();
-    fetchTasks();
+    fetchData();
   }, []);
 
   // --- Смена аватара ---
@@ -105,137 +103,174 @@ export default function ProfileScreen() {
       }
     } catch (error) {
       Alert.alert('Ошибка', 'Не удалось выбрать изображение');
-      console.log(error);
     }
   };
 
-  // --- Обновление профиля на сервере ---
+  // --- Сохранение профиля ---
   const saveProfile = async () => {
     try {
       await axios.post(`${ip}/profile`, { name, email, phone, city, avatar });
-      Alert.alert('Профиль сохранён');
+      Alert.alert('Успех', 'Профиль сохранён');
       setEditModalVisible(false);
     } catch (error) {
-      console.log('Ошибка при сохранении профиля', error);
       Alert.alert('Ошибка', 'Не удалось сохранить профиль');
     }
   };
 
-  // --- Работа с задачами ---
+  // --- Переключение статуса задачи ---
   const toggleComplete = async (task: Task) => {
     try {
       const updatedTask = { ...task, completed: !task.completed };
       await axios.put(`${ip}/tasks/${task.id}`, updatedTask);
-      setTasks((prev) => prev.map((t) => t.id === task.id ? updatedTask : t));
+      setTasks((prev) => prev.map((t) => (t.id === task.id ? updatedTask : t)));
     } catch (error) {
       console.log('Ошибка при обновлении задачи', error);
     }
   };
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.headerContainer}>
-        <Text style={styles.header}>Профиль</Text>
-      </View>
+    <View style={{ flex: 1, backgroundColor: '#f3f4f6' }}>
+      {/* 1. Глобальная кнопка вызова меню */}
+      <AnimatedBurgerButton
+        isOpen={isMenuOpen}
+        onPress={() => setIsMenuOpen(true)}
+        style={styles.burgerPosition}
+      />
 
-      <View style={[styles.profileCard, { padding: avatarMargin }]}>
-        {/* --- Аватар --- */}
-        <Pressable
-          onPress={pickImage}
-          onHoverIn={() => Platform.OS === 'web' && setHovered(true)}
-          onHoverOut={() => Platform.OS === 'web' && setHovered(false)}
-          style={{ width: avatarSize, height: avatarSize, borderRadius: 9999, overflow: 'hidden' }}
-        >
-          <Image
-            source={{ uri: avatar }}
-            style={{ width: avatarSize, height: avatarSize, borderRadius: 9999, opacity: hovered || showOverlay ? 0.6 : 1 }}
-          />
-          {(hovered || showOverlay) && (
-            <View style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              width: '100%',
-              height: '100%',
-              backgroundColor: 'rgba(0,0,0,0.3)',
-              justifyContent: 'center',
-              alignItems: 'center',
-            }}>
-              <FontAwesome name="pencil" size={28} color="#fff" />
-            </View>
-          )}
-        </Pressable>
+      <ScrollView contentContainerStyle={{ paddingTop: 60 }}>
+        <View style={styles.headerContainer}>
+          <Text style={styles.header}>Профиль</Text>
+        </View>
 
-        {/* --- Имя и email --- */}
-        <Text style={styles.name}>{name}</Text>
-        <Text style={styles.email}>{email}</Text>
+        <View style={[styles.profileCard, { padding: avatarMargin }]}>
+          {/* Аватар */}
+          <Pressable
+            onPress={pickImage}
+            onHoverIn={() => Platform.OS === 'web' && setHovered(true)}
+            onHoverOut={() => Platform.OS === 'web' && setHovered(false)}
+            onPressIn={() => setShowOverlay(true)}
+            onPressOut={() => setShowOverlay(false)}
+            style={{ width: avatarSize, height: avatarSize, borderRadius: 9999, overflow: 'hidden' }}
+          >
+            <Image
+              source={{ uri: avatar }}
+              style={{ width: avatarSize, height: avatarSize, borderRadius: 9999, opacity: hovered || showOverlay ? 0.6 : 1 }}
+            />
+            {(hovered || showOverlay) && (
+              <View style={styles.avatarOverlay}>
+                <FontAwesome name="pencil" size={28} color="#fff" />
+              </View>
+            )}
+          </Pressable>
 
-        <Pressable style={styles.editButton} onPress={() => setEditModalVisible(true)}>
-          <Text style={styles.editButtonText}>Редактировать профиль</Text>
-        </Pressable>
+          <Text style={styles.name}>{name}</Text>
+          <Text style={styles.email}>{email}</Text>
 
-        {/* --- Мои задачи --- */}
-        <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 12, marginTop: 16, width: '100%' }}>
-          <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 8 }}>Мои задачи</Text>
-          {tasks.length === 0 ? (
-            <Text style={{ color: '#6b7280' }}>У вас пока нет задач</Text>
-          ) : (
-            tasks.map(task => (
-              <View key={task.id} style={{ padding: 8, borderRadius: 8, backgroundColor: '#f9fafb', marginBottom: 8 }}>
-                <Text style={[{ fontWeight: 'bold', fontSize: 16 }, task.completed && { textDecorationLine: 'line-through', color: '#6b7280' }]}>{task.title}</Text>
-                {task.description && <Text style={{ color: '#6b7280', fontSize: 14 }}>{task.description}</Text>}
-                <Pressable onPress={() => toggleComplete(task)} style={{ marginTop: 4 }}>
+          <Pressable style={styles.editButton} onPress={() => setEditModalVisible(true)}>
+            <Text style={styles.editButtonText}>Редактировать профиль</Text>
+          </Pressable>
 
+          {/* Список задач */}
+          <View style={styles.tasksWrapper}>
+            <Text style={styles.tasksTitle}>Мои задачи</Text>
+            {tasks.length === 0 ? (
+              <Text style={{ color: '#6b7280' }}>У вас пока нет задач</Text>
+            ) : (
+              tasks.map(task => (
+                <View key={task.id} style={styles.taskItem}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.taskTitleText, task.completed && styles.taskCompletedText]}>
+                      {task.title}
+                    </Text>
+                    {task.description && <Text style={styles.taskDescText}>{task.description}</Text>}
+                  </View>
+                  <TouchableOpacity onPress={() => toggleComplete(task)}>
+                    <FontAwesome
+                      name={task.completed ? "check-circle" : "circle-o"}
+                      size={24}
+                      color={task.completed ? "#10b981" : "#d1d5db"}
+                    />
+                  </TouchableOpacity>
+                </View>
+              ))
+            )}
+          </View>
+        </View>
+      </ScrollView>
+
+      {/* 2. Общее меню (одинаковое для всех страниц) */}
+      <MainMenu
+        isVisible={isMenuOpen}
+        onClose={() => setIsMenuOpen(false)}
+        isLoggedIn={isLoggedIn}
+      />
+
+      {/* 3. Модалка редактирования (специфична только для этого экрана) */}
+      <Modal visible={editModalVisible} animationType="slide" transparent={true}>
+        <View style={styles.editOverlay}>
+          <View style={styles.editCard}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={styles.modalHeader}>Редактировать профиль</Text>
+
+              <Text style={styles.inputLabel}>Имя</Text>
+              <TextInput value={name} onChangeText={setName} style={styles.input} />
+
+              <Text style={styles.inputLabel}>Email</Text>
+              <TextInput value={email} onChangeText={setEmail} style={styles.input} keyboardType="email-address" />
+
+              <Text style={styles.inputLabel}>Телефон</Text>
+              <TextInput value={phone} onChangeText={setPhone} style={styles.input} keyboardType="phone-pad" />
+
+              <Text style={styles.inputLabel}>Город</Text>
+              <TextInput value={city} onChangeText={setCity} style={styles.input} />
+
+              <View style={styles.modalButtonsRow}>
+                <Pressable style={styles.cancelBtn} onPress={() => setEditModalVisible(false)}>
+                  <Text>Отмена</Text>
+                </Pressable>
+                <Pressable style={styles.saveBtn} onPress={saveProfile}>
+                  <Text style={{ color: '#fff', fontWeight: 'bold' }}>Сохранить</Text>
                 </Pressable>
               </View>
-            ))
-          )}
-        </View>
-      </View>
-
-      {/* --- Модалка редактирования профиля --- */}
-      <Modal visible={editModalVisible} animationType="slide">
-        <ScrollView contentContainerStyle={styles.modalContainer}>
-          <Text style={styles.modalHeader}>Редактировать профиль</Text>
-
-          <Text style={styles.inputLabel}>Имя</Text>
-          <TextInput value={name} onChangeText={setName} style={styles.input} />
-
-          <Text style={styles.inputLabel}>Email</Text>
-          <TextInput value={email} onChangeText={setEmail} style={styles.input} keyboardType="email-address" />
-
-          <Text style={styles.inputLabel}>Телефон</Text>
-          <TextInput value={phone} onChangeText={setPhone} style={styles.input} keyboardType="phone-pad" />
-
-          <Text style={styles.inputLabel}>Город</Text>
-          <TextInput value={city} onChangeText={setCity} style={styles.input} />
-
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 24 }}>
-            <Pressable style={styles.modalButton} onPress={() => setEditModalVisible(false)}>
-              <Text>Отмена</Text>
-            </Pressable>
-            <Pressable style={[styles.modalButton, { backgroundColor: '#1f2937' }]} onPress={saveProfile}>
-              <Text style={{ color: '#fff' }}>Сохранить</Text>
-            </Pressable>
+            </ScrollView>
           </View>
-        </ScrollView>
+        </View>
       </Modal>
-    </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f3f4f6' },
+  burgerPosition: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 50 : 30,
+    right: 20,
+    zIndex: 100,
+  },
   headerContainer: { padding: 16 },
-  header: { fontSize: 28, fontWeight: 'bold' },
-  profileCard: { backgroundColor: '#fff', borderRadius: 12, alignItems: 'center', margin: 16 },
-  name: { fontSize: 22, fontWeight: 'bold', marginTop: 16 },
+  header: { fontSize: 28, fontWeight: 'bold', color: '#1f2937' },
+  profileCard: { backgroundColor: '#fff', borderRadius: 20, alignItems: 'center', margin: 16, elevation: 2, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 4 },
+  avatarOverlay: { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center' },
+  name: { fontSize: 22, fontWeight: 'bold', marginTop: 16, color: '#1f2937' },
   email: { fontSize: 16, color: '#6b7280', marginTop: 4 },
-  editButton: { marginTop: 16, backgroundColor: '#1f2937', paddingVertical: 10, paddingHorizontal: 24, borderRadius: 8 },
+  editButton: { marginTop: 16, backgroundColor: '#1f2937', paddingVertical: 10, paddingHorizontal: 24, borderRadius: 12 },
   editButtonText: { color: '#fff', fontWeight: 'bold' },
-  modalContainer: { padding: 16, backgroundColor: '#fff' },
+
+  // Задачи
+  tasksWrapper: { marginTop: 24, width: '100%' },
+  tasksTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 12, color: '#1f2937' },
+  taskItem: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 12, backgroundColor: '#f9fafb', marginBottom: 8 },
+  taskTitleText: { fontWeight: 'bold', fontSize: 16, color: '#374151' },
+  taskCompletedText: { textDecorationLine: 'line-through', color: '#9ca3af' },
+  taskDescText: { color: '#6b7280', fontSize: 14, marginTop: 2 },
+
+  // Модалка редактирования
+  editOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  editCard: { backgroundColor: '#fff', borderTopLeftRadius: 30, borderTopRightRadius: 30, padding: 20, height: '80%' },
   modalHeader: { fontSize: 22, fontWeight: 'bold', marginBottom: 16 },
-  inputLabel: { fontSize: 16, fontWeight: '600', marginTop: 12 },
-  input: { backgroundColor: '#f3f4f6', padding: 12, borderRadius: 8, fontSize: 16, marginTop: 4 },
-  modalButton: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8, backgroundColor: '#e5e7eb', alignItems: 'center', flex: 1, marginHorizontal: 4 },
+  inputLabel: { fontSize: 14, fontWeight: '600', color: '#6b7280', marginTop: 12 },
+  input: { backgroundColor: '#f3f4f6', padding: 12, borderRadius: 10, fontSize: 16, marginTop: 4 },
+  modalButtonsRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 24, gap: 10 },
+  cancelBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, backgroundColor: '#e5e7eb', alignItems: 'center' },
+  saveBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, backgroundColor: '#1f2937', alignItems: 'center' },
 });
