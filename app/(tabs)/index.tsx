@@ -8,16 +8,16 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { Task, ChecklistItem } from '@/constants/types';
 import MainMenu from '@/components/MainMenu';
 import AnimatedBurgerButton from '@/components/AnimatedBurgerButton';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import AuthScreen from '../AuthScreen';
+import { useRouter } from 'expo-router';
+import { useAuth } from '@/server/AuthContext';
 
 import axios from 'axios';
 
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
-
 const fetchTasks = async () => {
   try {
-    const res = await axios.get(`${ip}/tasks`);
+    const res = await axios.get(`${ip}/tasks`, await getAuth());
     console.log('✅ Данные с сервера:', res.data);
   } catch (err: any) {
     console.error('❌ Ошибка при запросе:', err.message);
@@ -28,10 +28,21 @@ const fetchTasks = async () => {
   }
 };
 
+const getAuth = async () => {
+  const token = await AsyncStorage.getItem('userToken');
+  if (!token) return { headers: {} };
+  return {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    }
+  };
+};
+
 export default function TaskManagerMainScreen() {
+
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(true);
-
   const [tasks, setTasks] = useState<Task[]>([]);
   const [query, setQuery] = useState('');
   const [showAdd, setShowAdd] = useState(false);
@@ -45,20 +56,81 @@ export default function TaskManagerMainScreen() {
   const [checkItemText, setCheckItemText] = useState('');
   const [showCompleted, setShowCompleted] = useState(false);
   const [showPopup, setShowPopup] = useState(false);
+  const { logout } = useAuth();
+
   const fadeAnim = useRef(new Animated.Value(0)).current;
-
   const inputRef = useRef<TextInput | null>(null);
-
   const [titleFocused, setTitleFocused] = useState(false);
   const [descriptionFocused, setDescriptionFocused] = useState(false);
 
+  // Инициализация анимации
   const titleAnim = useRef(new Animated.Value(newTaskTitle ? 1 : 0)).current;
   const descriptionAnim = useRef(new Animated.Value(newTaskDescription ? 1 : 0)).current;
 
   const screenWidth = Dimensions.get('window').width;
-  const isSmallScreen = screenWidth < 400; // телефоны
+  const isSmallScreen = screenWidth < 400;
+  const router = useRouter();
 
-  // Функция для анимации лейбла
+  useEffect(() => {
+    const loadTasks = async () => {
+      const token = await AsyncStorage.getItem('userToken');
+      if (!token) {
+        setIsLoggedIn(false);
+        return;
+      }
+
+      try {
+        const config = await getAuth();
+        const res = await axios.get(`${ip}/tasks`, config);
+
+        const serverTasks: Task[] = res.data.map((t: any) => ({
+          ...t,
+          id: t.id.toString(),
+          checklist: typeof t.checklist === 'string' ? JSON.parse(t.checklist) : (t.checklist || []),
+        }));
+        setTasks(serverTasks);
+      } catch (err: any) {
+        console.error('Ошибка загрузки задач:', err.message);
+        if (err.response?.status === 401 || err.response?.status === 403) {
+          setIsLoggedIn(false);
+        }
+      }
+    };
+    loadTasks();
+  }, [isLoggedIn]);
+
+  // Проверка
+  if (!isLoggedIn) {
+    return <AuthScreen onLoginSuccess={() => setIsLoggedIn(true)} />;
+  }
+
+  const handleLogout = async () => {
+    try {
+      setIsMenuOpen(false);
+
+      await logout();
+
+    } catch (error) {
+      console.error("Ошибка при выходе:", error);
+    }
+  };
+
+  const handleLogin = async (emailValue: string, passwordValue: string) => {
+    try {
+      const res = await axios.post(`${ip}/login`, {
+        email: emailValue.trim(),
+        password: passwordValue
+      });
+      if (res.data.token) {
+        await AsyncStorage.setItem('userToken', res.data.token);
+        await AsyncStorage.setItem('userId', res.data.userId.toString());
+        setIsLoggedIn(true);
+      }
+    } catch (err: any) {
+      console.error("❌ Ошибка входа:", err.response?.data?.error || err.message);
+    }
+  };
+
   const animateLabel = (anim: Animated.Value, focused: boolean, value: string) => {
     Animated.timing(anim, {
       toValue: focused || value ? 1 : 0,
@@ -74,27 +146,6 @@ export default function TaskManagerMainScreen() {
       Animated.timing(fadeAnim, { toValue: 0, duration: 500, useNativeDriver: true }).start(() => setShowPopup(false));
     }, 3000);
   };
-
-  useEffect(() => {
-    const loadTasks = async () => {
-      try {
-        const res = await axios.get(`${ip}/tasks`);
-        // Преобразуем id в строку, чтобы соответствовало интерфейсу Task
-        const serverTasks: Task[] = res.data.map((t: any) => ({
-          ...t,
-          id: t.id.toString(),
-          checklist: t.checklist || [],
-        }));
-        setTasks(serverTasks);
-      } catch (err: any) {
-        console.error('❌ Ошибка при загрузке задач с сервера:', err.message);
-        if (err.response) console.log('Status:', err.response.status, 'Data:', err.response.data);
-      }
-    };
-
-    loadTasks();
-  }, []);
-
 
   const openAddModal = (task?: Task) => {
     if (task) {
@@ -117,118 +168,52 @@ export default function TaskManagerMainScreen() {
 
   const saveTask = async () => {
     if (!newTaskTitle.trim()) return;
+    const auth = await getAuth();
+    const commonData = {
+      title: newTaskTitle.trim(),
+      description: newTaskDescription.trim(),
+      due: newTaskDue.toISOString().split('T')[0],
+      priority: newTaskPriority,
+      checklist: newChecklist,
+    };
 
     if (editingTask) {
-      // обновление существующей задачи
       try {
-        await axios.put(`${ip}/tasks/${editingTask.id}`, {
-          title: newTaskTitle.trim(),
-          description: newTaskDescription.trim(),
-          completed: editingTask.completed,
-          due: newTaskDue.toISOString().split('T')[0],
-          priority: newTaskPriority,
-          checklist: newChecklist,
-        });
-        setTasks((s) =>
-          s.map((t) =>
-            t.id === editingTask.id
-              ? {
-                ...t,
-                title: newTaskTitle.trim(),
-                description: newTaskDescription.trim(),
-                due: newTaskDue.toISOString().split('T')[0],
-                priority: newTaskPriority,
-                checklist: newChecklist,
-              }
-              : t
-          )
-        );
-      } catch (err) {
-        console.error('Ошибка при обновлении задачи', err);
-      }
+        await axios.put(`${ip}/tasks/${editingTask.id}`, { ...commonData, completed: editingTask.completed }, auth);
+        setTasks((s) => s.map((t) => t.id === editingTask.id ? { ...t, ...commonData } : t));
+      } catch (err) { console.error('Ошибка при обновлении', err); }
     } else {
-      // создание новой задачи
       try {
-        const res = await axios.post(`${ip}/tasks`, {
-          title: newTaskTitle.trim(),
-          description: newTaskDescription.trim(),
-          due: newTaskDue.toISOString().split('T')[0],
-          priority: newTaskPriority,
-          checklist: newChecklist,
-        });
-        const t: Task = {
-          id: res.data.id.toString(),
-          title: newTaskTitle.trim(),
-          description: newTaskDescription.trim(),
-          completed: false,
-          due: newTaskDue.toISOString().split('T')[0],
-          priority: newTaskPriority,
-          checklist: newChecklist,
-        };
+        const res = await axios.post(`${ip}/tasks`, commonData, auth);
+        const t: Task = { ...commonData, id: res.data.id.toString(), completed: false };
         setTasks((s) => [t, ...s]);
-      } catch (err) {
-        console.error('Ошибка при создании задачи', err);
-      }
+      } catch (err) { console.error('Ошибка при создании', err); }
     }
-
     setShowAdd(false);
   };
-
 
   const toggleComplete = async (id: string) => {
     const task = tasks.find(t => t.id === id);
     if (!task) return;
-
-    // Логика: нельзя завершить задачу, если в чеклисте есть пустые пункты
     if (!task.completed && task.checklist.some(c => !c.completed)) {
-      showWarningPopup(); // Твой попап с предупреждением
+      showWarningPopup();
       return;
     }
-
     const newStatus = !task.completed;
-
-    // Анимация перед обновлением состояния
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-
     try {
-      // Обновляем в БД
-      await axios.put(`${ip}/tasks/${id}`, {
-        ...task,
-        completed: newStatus
-      });
-
-      // Обновляем в стейте
+      await axios.put(`${ip}/tasks/${id}`, { ...task, completed: newStatus }, await getAuth());
       setTasks(prev => prev.map(t => t.id === id ? { ...t, completed: newStatus } : t));
-    } catch (err) {
-      console.error("Ошибка при обновлении статуса:", err);
-    }
+    } catch (err) { console.error("Ошибка обновления статуса:", err); }
   };
 
   const removeTask = async (id: string) => {
-    // 1. Спрашиваем подтверждение (опционально, но полезно)
-    const confirmDelete = () => {
-      if (Platform.OS === 'web') {
-        return window.confirm("Вы уверены, что хотите удалить эту задачу?");
-      }
-      // Для мобильных можно использовать Alert.alert, но для простоты оставим логику удаления
-      return true;
-    };
-
+    const confirmDelete = () => Platform.OS === 'web' ? window.confirm("Удалить задачу?") : true;
     if (!confirmDelete()) return;
-
-    // 2. Отправляем запрос на сервер
     try {
-      await axios.delete(`${ip}/tasks/${id}`);
-
-      // 3. Если сервер ответил успешно, удаляем из локального списка (UI)
+      await axios.delete(`${ip}/tasks/${id}`, await getAuth());
       setTasks((s) => s.filter((t) => t.id !== id));
-      console.log(`✅ Задача ${id} удалена`);
-    } catch (err) {
-      console.error('❌ Ошибка при удалении задачи:', err);
-      if (Platform.OS !== 'web') {
-        alert("Не удалось удалить задачу. Проверьте соединение с сервером.");
-      }
-    }
+    } catch (err) { console.error('Ошибка при удалении:', err); }
   };
 
   const addChecklistItem = () => {
@@ -241,42 +226,21 @@ export default function TaskManagerMainScreen() {
   const toggleChecklistItem = async (taskId: string, itemId: string) => {
     const taskToUpdate = tasks.find(t => t.id === taskId);
     if (!taskToUpdate) return;
-
-    // Создаем новый чеклист
     const updatedChecklist = taskToUpdate.checklist.map(item =>
       item.id === itemId ? { ...item, completed: !item.completed } : item
     );
-
-    // 1. Локальное обновление для мгновенной реакции интерфейса
     setTasks((s) => s.map((t) => t.id === taskId ? { ...t, checklist: updatedChecklist } : t));
-
-    // 2. Отправка на сервер
     try {
-      await axios.put(`${ip}/tasks/${taskId}`, {
-        title: taskToUpdate.title,
-        description: taskToUpdate.description,
-        completed: taskToUpdate.completed,
-        due: taskToUpdate.due,
-        priority: taskToUpdate.priority,
-        checklist: updatedChecklist // отправляем обновленный массив
-      });
-      console.log('✅ Чеклист сохранен в базе');
-    } catch (err) {
-      console.error('❌ Не удалось сохранить чеклист:', err);
-      // Здесь можно вернуть состояние назад, если запрос не удался
-    }
+      await axios.put(`${ip}/tasks/${taskId}`, { ...taskToUpdate, checklist: updatedChecklist }, await getAuth());
+    } catch (err) { console.error('Ошибка сохранения чеклиста:', err); }
   };
 
   const filtered = tasks.filter(t => {
     const matchesQuery = t.title.toLowerCase().includes(query.toLowerCase());
-    if (!showCompleted && t.completed) return false;
-    return matchesQuery;
+    return showCompleted ? matchesQuery : (matchesQuery && !t.completed);
   });
 
-  const formatDate = (date: string | null) => {
-    if (!date) return '';
-    return new Date(date).toISOString().split('T')[0];
-  };
+  const formatDate = (date: string | null) => date ? new Date(date).toISOString().split('T')[0] : '';
 
   const getTaskStage = (task: Task) => {
     if (task.completed) return 'Выполнено';
@@ -299,13 +263,12 @@ export default function TaskManagerMainScreen() {
   stages.forEach(stage => tasksByStage[stage] = []);
   filtered.forEach(task => {
     const stage = getTaskStage(task);
-    if (!stages.includes(stage)) return;
-    tasksByStage[stage].push(task);
+    if (tasksByStage[stage]) tasksByStage[stage].push(task);
   });
 
   return (
     <View style={styles.container}>
-      {/* --- КНОПКА МЕНЮ (Добавлено) --- */}
+
       <AnimatedBurgerButton
         isOpen={isMenuOpen}
         onPress={() => setIsMenuOpen(true)}
@@ -408,9 +371,10 @@ export default function TaskManagerMainScreen() {
         isVisible={isMenuOpen}
         onClose={() => setIsMenuOpen(false)}
         isLoggedIn={isLoggedIn}
+        onLogout={handleLogout}
       />
 
-      {/* Popup уведомление */}
+      {/* Popup уведомления */}
       {showPopup && (
         <Animated.View style={[styles.popup, { opacity: fadeAnim }]}>
           <Text style={styles.popupText}>⚠️ Невозможно завершить задачу: есть незавершённые пункты чеклиста</Text>
@@ -664,9 +628,9 @@ function sampleTasks(): Task[] {
 const styles = StyleSheet.create({
   burgerPosition: {
     position: 'absolute',
-    top: Platform.OS === 'ios' ? 20 : 30,
+    top: Platform.OS === 'ios' ? 40 : 10,
     right: 20,
-    zIndex: 50,
+    zIndex: 2000,
   },
   container: { flex: 1, backgroundColor: '#d1d5db', padding: 16 },
   header: { fontSize: 24, fontWeight: 'bold', marginBottom: 16 },

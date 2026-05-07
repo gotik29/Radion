@@ -15,8 +15,9 @@ import {
 import Svg, { Circle } from 'react-native-svg';
 import * as Haptics from 'expo-haptics';
 import { useTasks } from '@/server/TaskContext';
+import { useAuth } from '@/server/AuthContext';
 
-// Импортируем наши общие компоненты
+// Импорт общих компонентов
 import AnimatedBurgerButton from '@/components/AnimatedBurgerButton';
 import MainMenu from '@/components/MainMenu';
 
@@ -31,17 +32,29 @@ const TIME_OPTIONS = [15, 20, 25, 30, 45, 60];
 
 export default function PomodoroScreen() {
   const { tasks } = useTasks();
+  const { logout } = useAuth();
+
+  const handleLogout = async () => {
+    try {
+      setIsMenuOpen(false);
+
+      await logout();
+
+    } catch (error) {
+      console.error("Ошибка при выходе:", error);
+    }
+  };
 
   // --- Состояния меню ---
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [isLoggedIn, setIsLoggedIn] = useState(true); // Можно связать с твоей логикой профиля
+  const [isLoggedIn, setIsLoggedIn] = useState(true);
 
   // --- Логика таймера ---
   const [mode, setMode] = useState<'work' | 'break'>('work');
   const [workDuration, setWorkDuration] = useState(25);
   const [breakDuration, setBreakDuration] = useState(5);
 
-  // Состояния модалок (специфичные для таймера)
+  // Состояния модалок
   const [isTimeModalVisible, setIsTimeModalVisible] = useState(false);
   const [isTaskModalVisible, setIsTaskModalVisible] = useState(false);
 
@@ -179,6 +192,7 @@ export default function PomodoroScreen() {
         isVisible={isMenuOpen}
         onClose={() => setIsMenuOpen(false)}
         isLoggedIn={isLoggedIn}
+        onLogout={handleLogout}
       />
 
       {/* 3. Модалки выбора (специфичные для экрана) */}
@@ -229,9 +243,9 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#d1d5db', justifyContent: 'center', alignItems: 'center', padding: 20 },
   burgerPosition: {
     position: 'absolute',
-    top: Platform.OS === 'ios' ? 60 : 30,
+    top: Platform.OS === 'ios' ? 40 : 10,
     right: 25,
-    zIndex: 10,
+    zIndex: 2000,
   },
   modeText: { fontSize: 24, fontWeight: 'bold', marginBottom: 20, color: '#1f2937' },
   timerContainer: { width: TIMER_SIZE, height: TIMER_SIZE, justifyContent: 'center', alignItems: 'center' },

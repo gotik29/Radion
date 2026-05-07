@@ -14,16 +14,16 @@ export default function TabLayout() {
   return (
     <Tabs screenOptions={{ headerShown: false }}>
       <Tabs.Screen
-        name="explore"
+        name="TimerPomodoro"
         options={{
-          title: 'Calendar',
-          tabBarIcon: ({ color }) => <Ionicons name="calendar-outline" size={28} color={color} />,
+          title: 'Таймер',
+          tabBarIcon: ({ color }) => <Ionicons name="timer" size={28} color={color} />,
         }}
       />
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Tasks',
+          title: 'Задачи',
           tabBarIcon: ({ color }) => <FontAwesome5 name="tasks" size={28} color={color} />,
           tabBarBadge: uncompletedCount > 0 ? uncompletedCount : undefined,
         }}
@@ -31,7 +31,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Profile',
+          title: 'Профиль',
           tabBarIcon: ({ color }) => <Ionicons name="person-outline" size={28} color={color} />,
         }}
       />

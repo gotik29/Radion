@@ -1,161 +1,164 @@
-//import express from "express";
-//import { Pool } from "pg";
-//import cors from "cors";
-//import bodyParser from "body-parser";
-
 import express from "express";
 import pkg from 'pg';
 const { Pool } = pkg;
 import cors from "cors";
 import bodyParser from "body-parser";
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
 
 const app = express();
+// Секрет для JWT. На Render обязательно добавь его в Environment Variables
+const JWT_SECRET = process.env.JWT_SECRET || 'radion_super_secret_key_2026';
+
 app.use(cors());
-// Увеличиваем лимит, так как аватар в base64 может быть тяжелым
 app.use(bodyParser.json({ limit: '50mb' }));
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }, // Обязательно для Neon в облаке
+  ssl: { rejectUnauthorized: false }, // Обязательно для Neon
 });
 
-//const pool = new Pool({
-//  user: "neondb_owner",
-//  host: "ep-calm-rain-al3pxqga-pooler.c-3.eu-central-1.aws.neon.tech",
-//  database: "neondb",
-//  password: "process.env.DATABASE_URL",
-//  port: 5432,
-//  ssl: { rejectUnauthorized: false },
-//});
+// --- Middleware для проверки авторизации ---
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
 
-//const pool = new Pool({
-//  user: "postgres",
-//  host: "localhost",
-//  database: "Diplom",
-//  password: "",
-//  port: 5432,
-//});
+  if (!token) return res.status(401).json({ error: "Токен не найден" });
 
-// --- Профиль пользователя ---
-app.get("/profile", async (req, res) => {
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ error: "Сессия истекла" });
+    req.user = user;
+    next();
+  });
+};
+
+// --- АВТОРИЗАЦИЯ (Регистрация и Вход) ---
+
+app.post('/register', async (req, res) => {
+  const { email, password, name } = req.body;
   try {
-    const result = await pool.query("SELECT * FROM profile WHERE id = 1");
-    if (result.rows.length === 0) {
-      // Вместо ошибки 500 возвращаем пустой объект или 404
-      return res.status(200).json({ name: "Новый пользователь", email: "" });
-    }
-    res.json(result.rows[0]);
+    const hashedPassword = await bcrypt.hash(password, 10);
+    // Вставляем данные в твою таблицу profile
+    const result = await pool.query(
+      "INSERT INTO profile (name, email, password) VALUES ($1, $2, $3) RETURNING id",
+      [name || 'Новый пользователь', email, hashedPassword]
+    );
+
+    const userId = result.rows[0].id;
+    const token = jwt.sign({ userId }, JWT_SECRET, { expiresIn: '30d' });
+    res.json({ token, userId });
   } catch (err) {
-    console.error("Ошибка БД:", err.message); // Это выведет ошибку в терминал!
+    res.status(500).json({ error: "Email уже занят" });
+  }
+});
+
+app.post('/login', async (req, res) => {
+  const { email, password } = req.body;
+  try {
+    const result = await pool.query("SELECT * FROM profile WHERE email = $1", [email]);
+    if (result.rows.length === 0) return res.status(401).json({ error: "Пользователь не найден" });
+
+    const user = result.rows[0];
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(401).json({ error: "Неверный пароль" });
+
+    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '30d' });
+    res.json({ token, userId: user.id });
+  } catch (err) {
+    res.status(500).json({ error: "Ошибка сервера" });
+  }
+});
+
+// --- ПРОФИЛЬ (Используем req.user.userId вместо id=1) ---
+
+app.get("/profile", authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT id, name, email, phone, city, avatar FROM profile WHERE id = $1",
+      [req.user.userId]
+    );
+    res.json(result.rows[0] || { name: "Новый пользователь", email: "" });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/profile', async (req, res) => {
+app.post('/profile', authenticateToken, async (req, res) => {
   const { name, email, phone, city, avatar } = req.body;
-
   const query = `
     UPDATE profile
     SET name = $1, email = $2, phone = $3, city = $4, avatar = $5
-    WHERE id = 1
+    WHERE id = $6
   `;
-
   try {
-    await pool.query(query, [name, email, phone, city, avatar]);
+    await pool.query(query, [name, email, phone, city, avatar, req.user.userId]);
     res.status(200).json({ message: 'Профиль сохранён' });
   } catch (err) {
-    console.error(err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// --- Задачи (Tasks) ---
+// --- ЗАДАЧИ (Фильтрация по user_id) ---
 
-// 1. Получение задач
-app.get("/tasks", async (req, res) => {
+app.get("/tasks", authenticateToken, async (req, res) => {
   try {
-    const result = await pool.query("SELECT * FROM tasks WHERE user_id = 1 ORDER BY id DESC");
+    const result = await pool.query(
+      "SELECT * FROM tasks WHERE user_id = $1 ORDER BY id DESC",
+      [req.user.userId]
+    );
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// 2. СОЗДАНИЕ ЗАДАЧИ (Этого метода у тебя не было)
-app.post("/tasks", async (req, res) => {
+app.post("/tasks", authenticateToken, async (req, res) => {
   const { title, description, due, priority, checklist } = req.body;
   try {
     const result = await pool.query(
       "INSERT INTO tasks (user_id, title, description, due, priority, checklist, completed) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *",
-      [1, title, description, due || null, priority, JSON.stringify(checklist || []), false]
+      [req.user.userId, title, description, due || null, priority, JSON.stringify(checklist || []), false]
     );
     res.json(result.rows[0]);
   } catch (err) {
-    console.error(" Ошибка при создании:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// 3. ОБНОВЛЕНИЕ ЗАДАЧИ (включая чеклист)
-app.put("/tasks/:id", async (req, res) => {
+app.put("/tasks/:id", authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { title, description, completed, due, priority, checklist } = req.body;
-
   try {
     const query = `
       UPDATE tasks
       SET title = $1, description = $2, completed = $3, due = $4, priority = $5, checklist = $6
-      WHERE id = $7
+      WHERE id = $7 AND user_id = $8
     `;
+    const result = await pool.query(query, [
+      title, description, completed, due || null, priority,
+      JSON.stringify(checklist || []), id, req.user.userId
+    ]);
 
-    const values = [
-      title,
-      description,
-      completed,
-      due || null,
-      priority,
-      JSON.stringify(checklist || []),
-      id
-    ];
-
-    await pool.query(query, values);
-    res.json({ success: true });
-  } catch (err) {
-    console.error("❌ Ошибка при обновлении:", err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// 4. УДАЛЕНИЕ (тоже пригодится)
-app.delete("/tasks/:id", async (req, res) => {
-  try {
-    await pool.query("DELETE FROM tasks WHERE id = $1", [req.params.id]);
+    if (result.rowCount === 0) return res.status(403).json({ error: "Доступ запрещен" });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// --- УДАЛЕНИЕ ЗАДАЧИ ---
-app.delete("/tasks/:id", async (req, res) => {
+app.delete("/tasks/:id", authenticateToken, async (req, res) => {
   const { id } = req.params;
-  console.log(`🗑️ Запрос на удаление задачи с ID: ${id}`);
-
   try {
-    const result = await pool.query("DELETE FROM tasks WHERE id = $1", [id]);
-
-    if (result.rowCount === 0) {
-      return res.status(404).json({ message: "Задача не найдена" });
-    }
-
-    res.json({ success: true, message: "Задача удалена" });
+    const result = await pool.query(
+      "DELETE FROM tasks WHERE id = $1 AND user_id = $2",
+      [id, req.user.userId]
+    );
+    if (result.rowCount === 0) return res.status(403).json({ error: "Не удалось удалить" });
+    res.json({ success: true });
   } catch (err) {
-    console.error("❌ Ошибка при удалении из БД:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
-
-//app.listen(3000, '0.0.0.0', () => console.log('🚀 Сервер запущен на порту 3000'));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
